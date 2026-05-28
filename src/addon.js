@@ -451,7 +451,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
         title = torrentioFormatter.formatTitle({
           filename: t.title || titleHeader,
           size: t.sizeText,
-          seeders: t.seeds,
           languages: langsArr(t),
           isPack: !!t.seasonPack,
           packName: t.seasonPack ? t.title : null,
@@ -476,7 +475,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     const cacheHints = { cacheMaxAge: 10 * 60, staleRevalidate: 60, staleError: 60 * 60 };
 
     // Stream HTTP diretti. Vanno in cima.
-    const PROVIDER_LABELS = { AW: 'AnimeWorld', AS: 'AnimeSaturn', GS: 'GuardaSerie', SC: 'StreamingCommunity' };
+    const PROVIDER_LABELS = { AW: 'AnimeWorld', AS: 'AnimeSaturn', AU: 'AnimeUnity', GS: 'GuardaSerie', SC: 'StreamingCommunity' };
     function formatHttpStream(s) {
       const langSingle = s.italian ? 'ITA' : s.italianSub ? 'Sub ITA' : null;
       const providerFull = PROVIDER_LABELS[s.provider] || s.provider;
@@ -497,11 +496,22 @@ builder.defineStreamHandler(async ({ type, id }) => {
           source: providerFull,
         });
       } else if (formatStyle === 'torrentio') {
+        // Service = sigla provider (aw/as/au/gs/sc) → tag esplicito nel name:
+        // "[AW] Pezzottio HTTP", "[SC] Pezzottio HTTP", ecc.
+        const svcKey = (s.provider || 'http').toLowerCase();
         name = torrentioFormatter.formatName({
-          addonName: 'Pezzottio', service: 'http', quality: s.quality || 'Direct',
+          addonName: 'Pezzottio', service: svcKey, quality: s.quality || 'HTTP',
         });
+        // Filename: prova estrazione dall'URL stream (utile per AW MP4 diretto
+        // come "Naruto_Ep_001_ITA.mp4"). Fallback: titolo + sorgente.
+        const realFilename = torrentioFormatter.extractFilename(s.url);
+        const epSuffix = (meta.season && meta.episode)
+          ? ` S${String(meta.season).padStart(2,'0')}E${String(meta.episode).padStart(2,'0')}`
+          : '';
+        const fileLine = realFilename
+          || `${meta.italianTitle || meta.title}${epSuffix} · ${providerFull}`;
         title = torrentioFormatter.formatTitle({
-          filename: `${meta.italianTitle || meta.title} (${providerFull})`,
+          filename: fileLine,
           languages: langsArr(s),
         });
       } else {
