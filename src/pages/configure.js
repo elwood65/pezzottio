@@ -303,8 +303,13 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
     <!-- HERO SPLIT: text + mockup -->
     <header class="grid lg:grid-cols-[1.1fr_1fr] gap-12 lg:gap-16 items-center pt-16 pb-20">
       <div>
-        <div class="trust-badge mb-6">
-          <span class="dot"></span> 100% gratis · Open source · Privacy first
+        <div class="flex flex-wrap items-center gap-2 mb-6">
+          <div class="trust-badge">
+            <span class="dot"></span> 100% gratis · Open source · Privacy first
+          </div>
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] uppercase tracking-wider font-bold" style="background:rgba(229,9,20,0.12); border:1px solid rgba(229,9,20,0.35); color:#ff5260;">
+            <span style="font-size:9px;">●</span> NOVITÀ · Real-Debrid riattivato
+          </div>
         </div>
         <h1 class="text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight mb-6 leading-[1.02]" style="letter-spacing:-0.035em;">
           Tutto lo streaming.<br>
@@ -312,8 +317,8 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
         </h1>
         <p class="text-zinc-300 text-lg md:text-xl leading-relaxed mb-8 max-w-xl">
           Film, serie e anime — nuovi o vecchi, conosciuti o di nicchia.
-          Stream HTTP diretti + Torbox. <strong class="text-white">Una sola installazione</strong>,
-          tutto in italiano.
+          Stream HTTP diretti + <strong class="text-white">Torbox</strong> o <strong class="text-white">Real-Debrid</strong>.
+          Una sola installazione, tutto in italiano.
         </p>
 
         <!-- LIVE USAGE — fetched ogni 60s da /api/usage -->
@@ -432,6 +437,7 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
       <div class="flex flex-wrap items-center justify-center gap-2.5">
         <span class="logo-pill">AnimeWorld</span>
         <span class="logo-pill">AnimeSaturn</span>
+        <span class="logo-pill">AnimeUnity</span>
         <span class="logo-pill">GuardaSerie</span>
         <span class="logo-pill">StreamingCommunity</span>
         <span class="logo-pill">Torrentio</span>
@@ -446,6 +452,7 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
         <span class="logo-pill">Bitsearch</span>
         <span class="logo-pill">apibay</span>
         <span class="logo-pill">Torbox</span>
+        <span class="logo-pill">Real-Debrid</span>
       </div>
     </section>
 
@@ -537,10 +544,10 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
       <div class="grid md:grid-cols-3 gap-10">
         <div class="relative">
           <div class="step-num mb-4">01</div>
-          <div class="text-lg font-bold text-white mb-2">Incolla la key Torbox</div>
+          <div class="text-lg font-bold text-white mb-2">Incolla la key debrid</div>
           <p class="text-sm text-zinc-400 leading-relaxed">
-            Opzionale — Pezzottio funziona anche senza, restano gli stream
-            HTTP italiani. Per il meglio però serve Torbox.
+            Opzionale — Pezzottio funziona anche senza, restano gli stream HTTP
+            italiani. Per il meglio servono Torbox o Real-Debrid (o entrambi in parallelo).
           </p>
         </div>
         <div>
@@ -592,8 +599,8 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
         Configura il tuo link.
       </h2>
       <p class="text-zinc-400 text-lg mb-10 ml-[18px]">
-        Pezzottio è sviluppato per funzionare con <strong class="text-white">Torbox</strong>.
-        La tua key resta solo nel link, niente account, niente database.
+        Pezzottio funziona con <strong class="text-white">Torbox</strong> e <strong class="text-white">Real-Debrid</strong> —
+        uno, l'altro o entrambi in parallelo. Le tue key restano solo nel link, niente account, niente database.
       </p>
 
       <!-- TB -->
@@ -628,15 +635,30 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
         </div>
       </div>
 
-      <!-- RD in sviluppo -->
-      <div class="card p-4 mb-3 border-l-2" style="border-left-color:#f5a524;">
-        <div class="flex items-start gap-3">
-          <div class="text-base">⚙️</div>
-          <div class="text-xs text-zinc-400 leading-relaxed">
-            <strong class="text-zinc-200">Real-Debrid in sviluppo.</strong> RD ha disabilitato la sua API di cache check
-            per i nuovi account, quindi i risultati sono pochi e lenti. Per ora <strong class="text-white">solo Torbox</strong>
-            è ufficialmente supportato. RD tornerà quando troveremo una soluzione affidabile.
+      <!-- RD (riattivato) -->
+      <div class="card card-rd p-6 mb-3">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded bg-white/5 border border-white/10 flex items-center justify-center font-bold text-xs text-white">RD</div>
+            <div>
+              <div class="font-semibold text-zinc-100">Real-Debrid</div>
+              <div class="text-xs text-zinc-500">Alternativa o complemento a Torbox. Funziona in parallelo.</div>
+            </div>
           </div>
+          <a href="https://real-debrid.com/apitoken" target="_blank" rel="noopener" class="text-xs text-zinc-500 hover:text-zinc-300 transition">ottieni token →</a>
+        </div>
+        <div class="relative">
+          <input id="rd-key" type="password" autocomplete="off" spellcheck="false"
+            class="input mono w-full rounded-lg px-3.5 py-2.5 pr-20 text-sm"
+            placeholder="incolla la tua API key" value="${escape(rd)}" />
+          <div id="rd-valid" class="valid-badge hidden"></div>
+          <button type="button" data-toggle="rd-key" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-zinc-200 px-2.5 py-1 rounded-md hover:bg-white/5 transition">
+            mostra
+          </button>
+        </div>
+        <div class="mt-3 text-[11px] text-zinc-500 leading-relaxed">
+          Puoi configurare Real-Debrid <strong class="text-zinc-300">insieme a Torbox</strong>: nella lista stream
+          appariranno i risultati di entrambi (badge [RD⚡] e [TB⚡]).
         </div>
       </div>
 
@@ -688,21 +710,21 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
             <input type="radio" name="order" value="smart" class="mt-1 accent-red-600" ${ord === 'smart' ? 'checked' : ''} />
             <div class="flex-1">
               <div class="text-sm text-white font-medium">Smart (consigliato)</div>
-              <div class="text-xs text-zinc-400 mt-0.5">HTTP prima per anime, Torbox prima per film e serie. Il default migliore.</div>
+              <div class="text-xs text-zinc-400 mt-0.5">HTTP prima per anime, debrid (Torbox/RD) prima per film e serie. Il default migliore.</div>
             </div>
           </label>
           <label class="order-option flex items-start gap-3 p-3 rounded cursor-pointer hover:bg-white/[0.03] transition border border-transparent" data-order-label="tb">
             <input type="radio" name="order" value="tb" class="mt-1 accent-red-600" ${ord === 'tb' ? 'checked' : ''} />
             <div class="flex-1">
-              <div class="text-sm text-white font-medium">Torbox sempre prima</div>
-              <div class="text-xs text-zinc-400 mt-0.5">Massima qualità all'inizio (4K, REMUX). HTTP italiani in fondo.</div>
+              <div class="text-sm text-white font-medium">Debrid sempre prima</div>
+              <div class="text-xs text-zinc-400 mt-0.5">Torbox / Real-Debrid in cima — massima qualità (4K, REMUX). HTTP italiani in fondo.</div>
             </div>
           </label>
           <label class="order-option flex items-start gap-3 p-3 rounded cursor-pointer hover:bg-white/[0.03] transition border border-transparent" data-order-label="http">
             <input type="radio" name="order" value="http" class="mt-1 accent-red-600" ${ord === 'http' ? 'checked' : ''} />
             <div class="flex-1">
               <div class="text-sm text-white font-medium">HTTP italiani sempre prima</div>
-              <div class="text-xs text-zinc-400 mt-0.5">AnimeWorld / GuardaSerie / StreamingCommunity all'inizio. Torbox sotto.</div>
+              <div class="text-xs text-zinc-400 mt-0.5">AnimeWorld / GuardaSerie / StreamingCommunity all'inizio. Torbox e Real-Debrid sotto.</div>
             </div>
           </label>
         </div>
@@ -722,21 +744,21 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
             <input type="radio" name="filter" value="all" class="mt-1 accent-red-600" ${flt === 'all' ? 'checked' : ''} />
             <div class="flex-1">
               <div class="text-sm text-white font-medium">Tutto (default)</div>
-              <div class="text-xs text-zinc-400 mt-0.5">Torbox + magnet diretti + HTTP italiani da GuardaSerie e StreamingCommunity.</div>
+              <div class="text-xs text-zinc-400 mt-0.5">Torbox + Real-Debrid + magnet diretti + HTTP italiani da GuardaSerie e StreamingCommunity.</div>
             </div>
           </label>
           <label class="flex items-start gap-3 p-3 rounded cursor-pointer hover:bg-white/[0.03] transition border border-transparent">
             <input type="radio" name="filter" value="torrent" class="mt-1 accent-red-600" ${flt === 'torrent' ? 'checked' : ''} />
             <div class="flex-1">
-              <div class="text-sm text-white font-medium">Solo torrent / Torbox</div>
-              <div class="text-xs text-zinc-400 mt-0.5">Solo Torbox (+ magnet diretti). Nasconde GuardaSerie e StreamingCommunity.</div>
+              <div class="text-sm text-white font-medium">Solo debrid / torrent</div>
+              <div class="text-xs text-zinc-400 mt-0.5">Solo Torbox / Real-Debrid (+ magnet diretti). Nasconde GuardaSerie e StreamingCommunity.</div>
             </div>
           </label>
           <label class="flex items-start gap-3 p-3 rounded cursor-pointer hover:bg-white/[0.03] transition border border-transparent">
             <input type="radio" name="filter" value="http" class="mt-1 accent-red-600" ${flt === 'http' ? 'checked' : ''} />
             <div class="flex-1">
               <div class="text-sm text-white font-medium">Solo HTTP italiani</div>
-              <div class="text-xs text-zinc-400 mt-0.5">Solo GuardaSerie + StreamingCommunity. Nasconde Torbox e magnet.</div>
+              <div class="text-xs text-zinc-400 mt-0.5">Solo GuardaSerie + StreamingCommunity. Nasconde Torbox, Real-Debrid e magnet.</div>
             </div>
           </label>
         </div>
@@ -806,22 +828,22 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
         </summary>
 
         <div class="mt-5 pt-5 border-t border-white/[0.06] space-y-4">
-          <!-- Modalità chiave -->
+          <!-- Modalità chiavi -->
           <div>
-            <div class="text-xs uppercase tracking-wider text-zinc-500 font-semibold mb-2">Chiave Torbox</div>
+            <div class="text-xs uppercase tracking-wider text-zinc-500 font-semibold mb-2">Modalità chiavi (Torbox + Real-Debrid)</div>
             <div class="space-y-2">
               <label class="flex items-start gap-2.5 p-2.5 rounded cursor-pointer hover:bg-white/[0.03] transition">
                 <input type="radio" name="key-mode" value="shared" class="mt-0.5 accent-red-600" checked />
                 <div class="text-xs">
-                  <div class="text-zinc-200 font-medium">Stessa chiave per tutti i profili</div>
-                  <div class="text-zinc-500 mt-0.5">Tutti i profili usano la chiave Torbox inserita sopra. Un solo account TB.</div>
+                  <div class="text-zinc-200 font-medium">Stesse chiavi per tutti i profili</div>
+                  <div class="text-zinc-500 mt-0.5">Tutti i profili usano le chiavi Torbox e Real-Debrid inserite sopra.</div>
                 </div>
               </label>
               <label class="flex items-start gap-2.5 p-2.5 rounded cursor-pointer hover:bg-white/[0.03] transition">
                 <input type="radio" name="key-mode" value="per-profile" class="mt-0.5 accent-red-600" />
                 <div class="text-xs">
-                  <div class="text-zinc-200 font-medium">Chiave diversa per ogni profilo</div>
-                  <div class="text-zinc-500 mt-0.5">Ogni profilo ha il suo account Torbox separato (utile per famiglie con più TB).</div>
+                  <div class="text-zinc-200 font-medium">Chiavi diverse per ogni profilo</div>
+                  <div class="text-zinc-500 mt-0.5">Ogni profilo ha le sue chiavi Torbox e/o Real-Debrid indipendenti (utile per famiglie con account separati). Se lasci vuoto un campo, viene usata la chiave globale sopra come fallback.</div>
                 </div>
               </label>
             </div>
@@ -844,7 +866,7 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
         ▶ Genera link
       </button>
       <p class="text-xs text-zinc-500 mt-3 text-center">
-        Senza chiave Torbox funzionano comunque gli stream HTTP italiani.
+        Senza chiave debrid funzionano comunque gli stream HTTP italiani.
       </p>
     </section>
 
@@ -867,13 +889,16 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
         <span class="text-xs text-zinc-300">Installa <strong class="text-white">prima</strong> il catalogo</span>
       </div>
       <a id="install-catalog" href="stremio://_REPLACED_BY_JS_/extra/manifest.json"
-         class="block text-center w-full px-5 py-3 rounded uppercase mb-1 text-sm font-semibold text-white transition hover:opacity-90"
+         class="block text-center w-full px-5 py-3 rounded uppercase mb-2 text-sm font-semibold text-white transition hover:opacity-90"
          style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
         <span class="inline-flex items-center gap-2 justify-center">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           Installa Catalogo
         </span>
       </a>
+      <button id="copy-catalog-url" class="btn-ghost w-full px-5 py-2 rounded text-xs mb-2">
+        Copia link manuale
+      </button>
       <div class="text-[11px] text-zinc-500 mb-4 ml-7 leading-relaxed">
         Netflix, Prime Video, Disney+, HBO Max, Apple TV+, Crunchyroll. Gratis.
       </div>
@@ -950,13 +975,13 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
         <details class="faq-item">
           <summary>È davvero gratis?<span class="faq-icon text-2xl">+</span></summary>
           <div class="faq-body">
-            Sì. Pezzottio è open-source e gratuito al 100%. Torbox costa pochi euro al mese ed è il provider ufficialmente supportato. Senza Torbox funzionano comunque gli stream HTTP italiani (AnimeWorld, AnimeSaturn, GuardaSerie, StreamingCommunity).
+            Sì. Pezzottio è open-source e gratuito al 100%. Torbox e Real-Debrid sono provider debrid commerciali (pochi euro al mese), entrambi supportati — puoi configurarli da soli o in parallelo. Senza nessun debrid funzionano comunque gli stream HTTP italiani (AnimeWorld, AnimeSaturn, AnimeUnity, GuardaSerie, StreamingCommunity).
           </div>
         </details>
         <details class="faq-item">
           <summary>Real-Debrid funziona?<span class="faq-icon text-2xl">+</span></summary>
           <div class="faq-body">
-            <strong>In sviluppo, non consigliato.</strong> Real-Debrid ha disabilitato l'API che permetterebbe a Pezzottio di sapere velocemente cosa è cached, quindi i risultati sono pochi e lenti. Per ora usa Torbox: funziona perfettamente. RD tornerà supportato quando troveremo una soluzione affidabile.
+            <strong>Sì, di nuovo supportato.</strong> Puoi inserire la tua chiave Real-Debrid nella pagina di setup, anche in parallelo con Torbox. In quel caso la lista stream mostra i risultati di entrambi (badge [RD⚡] e [TB⚡]). Torbox resta il consigliato principale per chi parte da zero — più veloce sui contenuti rari — ma RD ora è un'alternativa o complemento concreto.
           </div>
         </details>
         <details class="faq-item">
@@ -1212,6 +1237,12 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
     const dTestTb = debounce(() => testLive('tb'), 700);
     $('#tb-key').addEventListener('input', dTestTb);
     if ($('#tb-key').value) testLive('tb');
+    // Stesso pattern per RD (riattivato)
+    const dTestRd = debounce(() => testLive('rd'), 700);
+    if ($('#rd-key')) {
+      $('#rd-key').addEventListener('input', dTestRd);
+      if ($('#rd-key').value) testLive('rd');
+    }
 
     function base64UrlEncode(obj) {
       const json = JSON.stringify(obj);
@@ -1223,7 +1254,7 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
     // Ogni profilo ha solo un nome (e opzionalmente una chiave TB se in modalità
     // 'chiave diversa per profilo'). Le impostazioni sono quelle globali della
     // pagina (filter/style/order/fullIta/prefetch) e valgono per tutti i profili.
-    let profiles = []; // { name, tb }
+    let profiles = []; // { name, tb, rd }
 
     function renderProfiles() {
       const wrap = $('#profiles-list');
@@ -1237,17 +1268,22 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
       profiles.forEach((p, i) => {
         const row = document.createElement('div');
         row.className = 'bg-white/[0.03] border border-white/[0.06] rounded p-3 space-y-2';
+        const keyInputs = perProfileKey
+          ? '<input type="password" data-profile-tb="' + i + '" value="' + (p.tb || '').replace(/"/g, '&quot;') + '"' +
+              ' class="input mono w-full rounded px-2.5 py-1.5 text-xs"' +
+              ' placeholder="Chiave Torbox (opzionale)" />' +
+            '<input type="password" data-profile-rd="' + i + '" value="' + (p.rd || '').replace(/"/g, '&quot;') + '"' +
+              ' class="input mono w-full rounded px-2.5 py-1.5 text-xs"' +
+              ' placeholder="Chiave Real-Debrid (opzionale)" />' +
+            '<div class="text-[10px] text-zinc-500">Inserisci almeno una delle due. Vuoto = usa le chiavi globali sopra.</div>'
+          : '';
         row.innerHTML =
           '<div class="flex items-center gap-2">' +
             '<input type="text" data-profile-name="' + i + '" value="' + (p.name || '').replace(/"/g, '&quot;') + '"' +
               ' class="input flex-1 rounded px-2.5 py-1.5 text-xs" placeholder="Nome profilo (es. Famiglia)" />' +
             '<button type="button" data-profile-remove="' + i + '" class="text-zinc-500 hover:text-red-400 px-2 text-lg" title="Rimuovi">×</button>' +
           '</div>' +
-          (perProfileKey ?
-            '<input type="password" data-profile-tb="' + i + '" value="' + (p.tb || '').replace(/"/g, '&quot;') + '"' +
-              ' class="input mono w-full rounded px-2.5 py-1.5 text-xs"' +
-              ' placeholder="Chiave Torbox per questo profilo" />'
-            : '');
+          keyInputs;
         wrap.appendChild(row);
       });
       // Hook events
@@ -1256,6 +1292,9 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
       });
       wrap.querySelectorAll('[data-profile-tb]').forEach((el) => {
         el.addEventListener('input', (e) => { profiles[+e.target.dataset.profileTb].tb = e.target.value.trim(); });
+      });
+      wrap.querySelectorAll('[data-profile-rd]').forEach((el) => {
+        el.addEventListener('input', (e) => { profiles[+e.target.dataset.profileRd].rd = e.target.value.trim(); });
       });
       wrap.querySelectorAll('[data-profile-remove]').forEach((el) => {
         el.addEventListener('click', (e) => {
@@ -1268,7 +1307,7 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
     if ($('#add-profile')) {
       $('#add-profile').addEventListener('click', () => {
         if (profiles.length >= 5) { showStatus('Massimo 5 profili.', 'err'); return; }
-        profiles.push({ name: 'Profilo ' + (profiles.length + 1), tb: '' });
+        profiles.push({ name: 'Profilo ' + (profiles.length + 1), tb: '', rd: '' });
         renderProfiles();
       });
       document.querySelectorAll('input[name="key-mode"]').forEach((el) => {
@@ -1280,28 +1319,33 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
     $('#generate-btn').addEventListener('click', async () => {
       const btn = $('#generate-btn');
       const tb = $('#tb-key').value.trim();
+      const rd = ($('#rd-key') && $('#rd-key').value.trim()) || '';
       const order = (document.querySelector('input[name="order"]:checked') || {}).value || 'smart';
 
       // Senza chiave → genera comunque link "solo HTTP"
       let payload = {};
       let validTb = '';
+      let validRd = '';
 
-      if (tb) {
+      if (tb || rd) {
         btn.disabled = true;
         btn.textContent = 'Verifico...';
         try {
           const res = await fetch('/api/test', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tb })
+            body: JSON.stringify({ tb, rd })
           });
           const data = await res.json();
-          validTb = data.tb.ok ? tb : '';
+          validTb = (tb && data.tb && data.tb.ok) ? tb : '';
+          validRd = (rd && data.rd && data.rd.ok) ? rd : '';
           if (tb && !validTb) showStatus('La key Torbox non risulta valida.', 'err');
+          if (rd && !validRd) showStatus('La key Real-Debrid non risulta valida.', 'err');
         } catch (e) {
           showStatus('Errore di rete: ' + e.message, 'err');
           btn.textContent = 'Genera link'; btn.disabled = false; return;
         }
         if (validTb) payload.tb = validTb;
+        if (validRd) payload.rd = validRd;
       }
       // Includo order solo se diverso dal default per tenere il link più corto
       if (order && order !== 'smart') payload.order = order;
@@ -1322,23 +1366,31 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
       // === MODALITÀ PROFILI MULTIPLI ===
       if (profiles.length > 0) {
         const keyMode = (document.querySelector('input[name="key-mode"]:checked') || {}).value || 'shared';
-        // Valida chiavi per-profilo se necessario
+        // Valida chiavi per-profilo: ogni profilo deve avere almeno UNA chiave
+        // (TB o RD, locale o globale via fallback).
         if (keyMode === 'per-profile') {
-          const missing = profiles.filter((p) => !p.tb).map((p) => p.name).join(', ');
+          const missing = profiles
+            .filter((p) => !p.tb && !p.rd && !validTb && !validRd)
+            .map((p) => p.name)
+            .join(', ');
           if (missing) {
-            showStatus('Inserisci una chiave Torbox per: ' + missing, 'err');
+            showStatus('Inserisci almeno una chiave (Torbox o Real-Debrid) per: ' + missing, 'err');
             btn.textContent = 'Genera link'; btn.disabled = false;
             return;
           }
         }
         // Le impostazioni globali della pagina valgono per TUTTI i profili.
-        // Cambia solo la chiave TB (condivisa o per-profilo).
+        // Le chiavi TB/RD: per-profile usa quella inserita nel profilo (con
+        // fallback alla globale se vuota); shared usa solo le globali.
         const baseSettings = { ...payload };
         delete baseSettings.tb;
+        delete baseSettings.rd;
         const results = profiles.map((p) => {
-          const tbKey = keyMode === 'shared' ? validTb : p.tb;
+          const tbKey = keyMode === 'shared' ? validTb : (p.tb || validTb);
+          const rdKey = keyMode === 'shared' ? validRd : (p.rd || validRd);
           const pPayload = { ...baseSettings };
           if (tbKey) pPayload.tb = tbKey;
+          if (rdKey) pPayload.rd = rdKey;
           const enc = base64UrlEncode(pPayload);
           return {
             name: p.name || 'Profilo',
@@ -1431,8 +1483,22 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
     // POI clicca "Installa Pezzottio". L'ordine di install determina l'ordine
     // dei catalog in home Stremio (primo installato = primo in lista).
     const EXTRA_CATALOG_URL = 'stremio://' + HOST + '/extra/manifest.json';
+    // URL HTTPS per copia manuale (mirror del stremio:// che usa lo schema custom)
+    const EXTRA_CATALOG_HTTPS = BASE + '/extra/manifest.json';
     const installCatBtn = $('#install-catalog');
     if (installCatBtn) installCatBtn.href = EXTRA_CATALOG_URL;
+    // Copy link manuale catalogo (stesso pattern di #copy-url per Pezzottio)
+    const copyCatBtn = $('#copy-catalog-url');
+    if (copyCatBtn) {
+      copyCatBtn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(EXTRA_CATALOG_HTTPS);
+        } catch (_) {}
+        const orig = copyCatBtn.textContent;
+        copyCatBtn.textContent = '✓ Copiato';
+        setTimeout(() => { copyCatBtn.textContent = orig; }, 1400);
+      });
+    }
   </script>
 </body>
 </html>`;

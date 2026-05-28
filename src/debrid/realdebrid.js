@@ -588,6 +588,212 @@ async function getStreamUrlFromExisting(torrent, season, episode) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// FAST PATH — API esterna che ritorna lista torrent + flag cached_rd
+// pre-computato. Saltiamo completamente il batch scraper + mylist verify.
+// ─────────────────────────────────────────────────────────────────────
+const RD_CACHE_API = process.env.RD_CACHE_API || 'http://158.101.170.131:8321';
+const _findCachedCache = new Map(); // key: kind:tmdb:s:e → { v, t }
+const _FIND_TTL = 5 * 60 * 1000; // 5 min
+
+// Ritorna lista di torrent CACHED-RD pronti da servire.
+// Per i film: ogni entry ha {hash, magnet, title, size, seeders, is_pack}.
+// Per le serie: ogni entry ha anche {file: {title, size, file_index, rd_link_index}}
+// pre-mappato (l'API risolve già file index + RD link index per l'episodio).
+async function findCachedByTmdb(tmdbId, season, episode, isMovie) {
+  if (!tmdbId) return [];
+  const kind = isMovie ? 'movie' : 'tv';
+  const qid = isMovie ? String(tmdbId) : `${tmdbId}:${season || 1}:${episode || 1}`;
+  const ckey = `${kind}:${qid}`;
+  const hit = _findCachedCache.get(ckey);
+  if (hit && Date.now() - hit.t < _FIND_TTL) return hit.v;
+  try {
+    const url = `${RD_CACHE_API}/${kind}?tmdb_id=${encodeURIComponent(qid)}&debrid=rd`;
+    const r = await fetch(url, { timeout: 5000 });
+    if (!r.ok) {
+      console.error(`[RD cache-api] ${kind}/${qid} -> ${r.status}`);
+      return [];
+    }
+    const data = await r.json();
+    const results = Array.isArray(data?.results) ? data.results : [];
+    // Solo cached_rd: true. Estrai hash dal magnet btih.
+    const out = [];
+    for (const r of results) {
+      if (!r.cached_rd) continue;
+      const hashM = String(r.magnet || '').match(/btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
+      if (!hashM) continue;
+      out.push({
+        hash: hashM[1].toLowerCase(),
+        magnet: r.magnet,
+        title: r.title || '',
+        size: (r.file && r.file.size) || 0,
+        seeders: r.seeders || 0,
+        isPack: !!r.is_pack,
+        file: r.file || null, // contiene file_index + rd_link_index per le serie
+      });
+    }
+    _findCachedCache.set(ckey, { v: out, t: Date.now() });
+    return out;
+  } catch (e) {
+    console.error(`[RD cache-api] ${kind}/${qid} ERR:`, e.message);
+    return [];
+  }
+}
+
+// Risolve l'URL stream usando direttamente file_index + rd_link_index forniti
+// dall'API esterna (più affidabile dell'euristica pickRdLink). Per i film,
+// fileIndex/rdLinkIndex possono essere null → selectAll + first link.
+async function getStreamUrlFast(hash, magnet, fileIndex, rdLinkIndex) {
+  const key = getConfig().realdebridKey;
+  if (!key || !magnet) return null;
+  const lowerHash = String(hash || '').toLowerCase();
+  try {
+    // Prova prima mylist (skip addMagnet se il torrent esiste già nell'account)
+    const mylist = await getMyList();
+    let torrentId = mylist.get(lowerHash)?.id;
+    if (!torrentId) {
+      const added = await addMagnet(magnet);
+      if (!added.id) return null;
+      torrentId = added.id;
+      // selectFiles: indice puntuale se fornito, altrimenti "all"
+      const body = (fileIndex != null && fileIndex !== '')
+        ? `files=${Number(fileIndex) + 1}` // RD usa 1-based
+        : 'files=all';
+      await rdFetch(`${API}/torrents/selectFiles/${torrentId}`, {
+        method: 'POST', headers: headers(), body,
+      });
+      // Cached → ready immediato. Brevissima pausa per consistency.
+      await new Promise((r) => setTimeout(r, 800));
+    }
+    const info = await getInfo(torrentId);
+    if (!info.links || !info.links.length) {
+      gCacheSet(lowerHash, false);
+      return null;
+    }
+    // Link da unrestrict:
+    //  - se rdLinkIndex fornito dall'API: link[rdLinkIndex] direttamente
+    //  - altrimenti fallback: link[0] (film) o pickRdLink (serie senza index)
+    let chosen = null;
+    if (rdLinkIndex != null && rdLinkIndex !== '' && Number.isFinite(Number(rdLinkIndex))) {
+      const idx = Number(rdLinkIndex);
+      chosen = info.links[idx] || info.links[0];
+    } else {
+      chosen = info.links[0];
+    }
+    if (!chosen) return null;
+    const { download } = await unrestrict(chosen);
+    gCacheSet(lowerHash, true);
+    return download;
+  } catch (e) {
+    if (e && e.status === 451) gCacheSet(lowerHash, false);
+    console.error(`[RD fast] ${lowerHash.slice(0, 8)} err: ${e.message}`);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Traduzione episodio ASSOLUTO → S/E TMDB per anime via Kitsu.
+// Kitsu serve One Piece (e altri long-running) come lista flat di episodi:
+// "ep 1163" su Kitsu = "S23E08" su TMDB. L'API esterna usa il formato TMDB
+// strutturato, quindi serve la traduzione prima del lookup.
+//
+// Fonte primaria: Cinemeta videos array (S/E corretta, allineata a TMDB ma
+// filtrata da specials/recap). Cache 24h per evitare l'hit grosso (~1.3MB
+// per One Piece).
+// Fallback: TMDB API /tv/{id} seasons summing (meno preciso ma veloce).
+// ─────────────────────────────────────────────────────────────────────
+const CINEMETA = 'https://v3-cinemeta.strem.io';
+const _TMDB_API = 'https://api.themoviedb.org/3';
+const _TMDB_KEY = process.env.TMDB_API_KEY || '4ef0d7355d9ffb5151e987764708ce96';
+const _videosCache = new Map(); // imdb → { v: [...], t }
+const _tmdbSeasonsCache = new Map(); // tmdbId → { v: [...], t }
+
+async function getCinemetaVideos(imdbId) {
+  if (!imdbId) return null;
+  const hit = _videosCache.get(imdbId);
+  if (hit && Date.now() - hit.t < 24 * 60 * 60 * 1000) return hit.v;
+  try {
+    // Timeout alto (12s) perché One Piece ha 1.3MB di videos. La cache 24h
+    // amortizza il costo: prima call lenta, successive istantanee.
+    const r = await fetch(`${CINEMETA}/meta/series/${imdbId}.json`, { timeout: 12000 });
+    if (!r.ok) return null;
+    const { meta } = await r.json();
+    const videos = (meta?.videos || [])
+      .filter((v) => Number(v.season) > 0)
+      .sort((a, b) => (Number(a.season) - Number(b.season)) || (Number(a.episode) - Number(b.episode)));
+    _videosCache.set(imdbId, { v: videos, t: Date.now() });
+    return videos;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function getTmdbSeasons(tmdbId) {
+  if (!tmdbId) return null;
+  const hit = _tmdbSeasonsCache.get(tmdbId);
+  if (hit && Date.now() - hit.t < 24 * 60 * 60 * 1000) return hit.v;
+  try {
+    const r = await fetch(`${_TMDB_API}/tv/${tmdbId}?api_key=${_TMDB_KEY}`, { timeout: 6000 });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const seasons = (data.seasons || [])
+      .filter((s) => Number(s.season_number) > 0)
+      .map((s) => ({ season: Number(s.season_number), count: Number(s.episode_count) }));
+    _tmdbSeasonsCache.set(tmdbId, { v: seasons, t: Date.now() });
+    return seasons;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Mappa episodio assoluto → { season, episode } TMDB-style.
+// Ritorna null se l'imdbId non ha videos oppure l'index è fuori range.
+//
+// Alcuni anime long-running hanno offset broadcast vs Cinemeta. Lo stesso
+// hardcoded in cinemeta.js (ABSOLUTE_OFFSET) viene applicato inversamente qui:
+// se Kitsu dice "ep 1163" e Cinemeta è +1 (ep 1164), per allineare al sort
+// di Cinemeta dobbiamo sottrarre l'offset.
+const _ABS_OFFSET = {
+  tt0388629: 1, // One Piece (Kitsu broadcast → Cinemeta - 1)
+};
+async function absoluteEpisodeToSE(imdbId, absoluteEpisode, tmdbIdFallback) {
+  const offset = _ABS_OFFSET[imdbId] || 0;
+
+  // PRIMA: Cinemeta videos (precisa, ma 1.3MB per One Piece → cache 24h)
+  const videos = await getCinemetaVideos(imdbId);
+  if (videos && videos.length) {
+    // L'offset broadcast vs Cinemeta non è lineare: cresce nel tempo. Per gli
+    // episodi alti l'offset si applica, per quelli bassi no. Strategia: prova
+    // prima con offset; se fuori range, fallback a absolute non-offsettato.
+    const tryAdjusted = absoluteEpisode - offset;
+    if (tryAdjusted >= 1 && tryAdjusted - 1 < videos.length) {
+      const v = videos[tryAdjusted - 1];
+      return { season: Number(v.season), episode: Number(v.episode) };
+    }
+    if (absoluteEpisode >= 1 && absoluteEpisode - 1 < videos.length) {
+      const v = videos[absoluteEpisode - 1];
+      return { season: Number(v.season), episode: Number(v.episode) };
+    }
+  }
+
+  // FALLBACK: TMDB seasons summing (meno preciso — TMDB include specials che
+  // Cinemeta filtra). Veloce: solo 23 seasons object vs 1.3MB videos.
+  if (tmdbIdFallback) {
+    const seasons = await getTmdbSeasons(tmdbIdFallback);
+    if (seasons && seasons.length) {
+      const target = Math.max(1, absoluteEpisode - offset);
+      let acc = 0;
+      for (const s of seasons) {
+        if (acc + s.count >= target) {
+          return { season: s.season, episode: target - acc };
+        }
+        acc += s.count;
+      }
+    }
+  }
+  return null;
+}
+
 module.exports = {
   name: 'RD',
   getStreamUrl,
@@ -595,4 +801,8 @@ module.exports = {
   checkCachedBatch,
   getMyList,
   gCacheSet,
+  // Fast path (API esterna)
+  findCachedByTmdb,
+  getStreamUrlFast,
+  absoluteEpisodeToSE,
 };

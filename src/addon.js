@@ -2,7 +2,7 @@ const { addonBuilder } = require('stremio-addon-sdk');
 const { getConfig } = require('./config');
 const { resolveTitle } = require('./cinemeta');
 const { searchTorrents, distributeByQuality } = require('./search');
-const { isHDR } = require('./parse');
+const { isHDR, isItalian, hasItalianSub, parseQuality, formatSize } = require('./parse');
 const { getCurrentUserConfig, encodeConfig } = require('./config');
 const debrid = require('./debrid');
 const animeworld = require('./providers/animeworld');
@@ -576,7 +576,10 @@ builder.defineStreamHandler(async ({ type, id }) => {
         const cached = cachedMap.get(c.infoHash);
         if (!cached) continue;
         if (c.seasonPack && meta.season && meta.episode) {
-          const fileMatch = findFileForEpisode(cached.files || [], meta.season, meta.episode);
+          // Per anime via Kitsu (season=1, episode=absolute), passa anche meta.episode
+          // come absoluteEpisode → match pattern "One Piece - 1163.mkv" nei pack.
+          const absFallback = (isAnime && (meta.season == null || meta.season <= 1)) ? meta.episode : meta.absoluteEpisode;
+          const fileMatch = findFileForEpisode(cached.files || [], meta.season, meta.episode, absFallback);
           if (!fileMatch) continue;
         }
         const url = `${publicHost}/${cfgB64}/play/${c.infoHash}${sePart}${iPart}`;
@@ -585,54 +588,166 @@ builder.defineStreamHandler(async ({ type, id }) => {
       return out;
     }
 
-    // Resolver per RealDebrid: usa /torrents (mylist utente) come "cache check"
-    // gratis. Solo i torrent GIÀ scaricati dall'utente vengono mostrati — questi
-    // sono garantiti play-funzionanti, niente "loading failed".
-    // Trade-off: mostriamo meno risultati (limitato a quello che l'utente ha già
-    // usato), ma TUTTI funzionano. instantAvailability deprecato da RD 2024 non
-    // ci lascia alternative senza sforare il rate limit.
+    // Resolver per RealDebrid (fast path): chiama l'API esterna di cache check
+    // che ritorna torrent CACHED-RD pre-computati, con file_index + rd_link_index
+    // pre-mappati per le serie. Skip totale del flusso mylist/instantAvailability.
+    //
+    // Pipeline: TMDB lookup (~200ms) → /movie|/tv?tmdb_id=... (~400ms) → emit URLs
+    // Latency totale /stream lato RD: ~600ms vs ~2.5s del vecchio path.
     async function resolveRealDebrid(prov) {
-      // VERIFY OBBLIGATORIO: tutti i cached confermati al 100% prima di emettere.
-      // Niente trust [RD+] blind: gli aggregator hanno cache stale che causa
-      // loading failed.
-      // Priority: hash con rdCached tag in cima così verify foreground li testa
-      // per primi (più probabilità di cached confirm). Per i pool con molti
-      // [RD+] tag, allarghiamo il VERIFY_LIMIT lato checkCachedBatch (param).
-      const candidatesRD = [...candidates].sort(
-        (a, b) => (b.rdCached ? 1 : 0) - (a.rdCached ? 1 : 0),
-      );
-      const hashes = candidatesRD.map((c) => c.infoHash);
-      const hashWithMagnets = new Map();
-      for (const c of candidatesRD) {
-        if (c.magnet) hashWithMagnets.set(c.infoHash, c.magnet);
+      const isMovieKind = isMovie;
+      console.log(`[RD] called: imdbId=${imdbId} isMovie=${isMovieKind} s=${meta.season} e=${meta.episode}`);
+      // Mapping IMDB → TMDB usando l'helper già esistente in streamingcommunity.
+      let tmdbId = null;
+      try {
+        if (imdbId) {
+          const sc = require('./providers/streamingcommunity');
+          tmdbId = await Promise.race([
+            sc.imdbToTmdb(imdbId, isMovieKind ? 'movie' : 'tv').catch((e) => { console.error('[RD] imdbToTmdb err:', e.message); return null; }),
+            new Promise((r) => setTimeout(() => r('TIMEOUT'), 1500)),
+          ]);
+          if (tmdbId === 'TIMEOUT') { console.error('[RD] imdbToTmdb TIMEOUT 1.5s'); tmdbId = null; }
+        } else {
+          console.log('[RD] no imdbId, skip');
+        }
+      } catch (e) {
+        console.error('[RD] tmdb try err:', e.message);
       }
-      // Verify limit ridotto: l'utente vuole /stream <3s totali.
-      // Con gap addMagnet 1.5s, 1 verify = ~3s, 2 verify in parallelo = ~3s.
-      // Skippo verify se troppi/zero tag aggregator → il /stream esce veloce.
-      const rdTagCount = candidatesRD.filter((c) => c.rdCached).length;
-      const verifyLimit = rdTagCount >= 1 ? 2 : 0;
-      // Master timeout 2.5s: oltre, ritorna quello che ha (gcache+mylist sono
-      // veloci; verify foreground può essere troncato senza problemi).
-      const cachedMap = await Promise.race([
-        prov.checkCachedBatch(hashes, hashWithMagnets, meta.season, meta.episode, verifyLimit).catch(() => new Map()),
-        new Promise((r) => setTimeout(() => r(new Map()), 2500)),
+      console.log(`[RD] tmdbId resolved = ${tmdbId}`);
+      if (!tmdbId) {
+        console.log('[RD] no TMDB mapping, skip');
+        return [];
+      }
+      // Traduzione episodio assoluto → S/E TMDB per anime via Kitsu.
+      // Kitsu serve One Piece e altri long-running come lista flat: "ep 1163"
+      // Kitsu = "S23E08" TMDB. L'API esterna vuole il formato TMDB strutturato.
+      // Trigger: anime + season≤1 + episode≥30 (euristica safe per anime corti).
+      let lookupSeason = meta.season;
+      let lookupEpisode = meta.episode;
+      if (isAnime && imdbId && (meta.season == null || meta.season <= 1) && meta.episode && meta.episode >= 30) {
+        const translated = await prov.absoluteEpisodeToSE(imdbId, meta.episode, tmdbId).catch(() => null);
+        if (translated) {
+          lookupSeason = translated.season;
+          lookupEpisode = translated.episode;
+          console.log(`[RD] anime abs ep${meta.episode} → S${lookupSeason}E${lookupEpisode} (imdb=${imdbId})`);
+        }
+      }
+      const cached = await Promise.race([
+        prov.findCachedByTmdb(tmdbId, lookupSeason, lookupEpisode, isMovieKind).catch((e) => { console.error('[RD] findCached err:', e.message); return []; }),
+        new Promise((r) => setTimeout(() => r('TIMEOUT'), 2000)),
       ]);
-      const out = [];
-      for (const c of candidatesRD) {
-        if (out.length >= maxResults) break;
-        if (!cachedMap.has(c.infoHash)) continue;
-        const url = `${publicHost}/${cfgB64}/play/${c.infoHash}${sePart}${sePart ? '&' : '?'}p=rd${imdbId ? `&i=${imdbId}` : ''}`;
-        out.push(formatStream(c, prov.name, url));
+      if (cached === 'TIMEOUT') {
+        console.error('[RD] findCachedByTmdb TIMEOUT 2s');
+        return [];
       }
-      console.log(`[RD] resolve emitted ${out.length} stream (rdTagCount=${rdTagCount} verifyLimit=${verifyLimit})`);
+      console.log(`[RD] cached.length = ${cached.length}`);
+      if (!cached.length) {
+        console.log(`[RD] tmdb=${tmdbId} → 0 cached`);
+        return [];
+      }
+      // Trasforma ogni cached entry in candidato Pezzottio-compatible
+      const TRACKERS = [
+        'udp://tracker.opentrackr.org:1337/announce',
+        'udp://tracker.openbittorrent.com:6969/announce',
+        'udp://open.demonii.com:1337/announce',
+        'udp://tracker.torrent.eu.org:451/announce',
+      ];
+      const out = [];
+      // Ordino per ITA tier + qualità: audio ITA > sub ITA > altro
+      const enriched = cached.map((c) => {
+        const text = `${c.title || ''} ${(c.file && c.file.title) || ''}`;
+        return {
+          ...c,
+          _text: text,
+          _italian: isItalian(text),
+          _italianSub: hasItalianSub(text),
+          _quality: parseQuality(text),
+        };
+      });
+      const tier = (c) => (c._italian ? 0 : c._italianSub ? 1 : 2);
+      const QR = { '4K': 5, '1080p': 4, '720p': 3, '480p': 2, CAM: 1 };
+      enriched.sort((a, b) => {
+        const td = tier(a) - tier(b);
+        if (td !== 0) return td;
+        return (QR[b._quality] || 0) - (QR[a._quality] || 0);
+      });
+      // Full ITA filter: esclude release senza marker italiano
+      const pool = fullIta ? enriched.filter((c) => c._italian) : enriched;
+      for (const c of pool) {
+        if (out.length >= maxResults) break;
+        const fi = (c.file && c.file.file_index != null) ? c.file.file_index : '';
+        const rli = (c.file && c.file.rd_link_index != null) ? c.file.rd_link_index : '';
+        // URL /play con indici file pre-mappati → resolver lato server salta
+        // pickRdLink euristico e usa direttamente i valori dell'API
+        const q = new URLSearchParams();
+        if (meta.season) q.set('s', String(meta.season));
+        if (meta.episode) q.set('e', String(meta.episode));
+        q.set('p', 'rd');
+        if (fi !== '') q.set('fi', String(fi));
+        if (rli !== '') q.set('rli', String(rli));
+        if (imdbId) q.set('i', imdbId);
+        const url = `${publicHost}/${cfgB64}/play/${c.hash}?${q.toString()}`;
+        const candidateLike = {
+          title: c.title,
+          infoHash: c.hash,
+          sizeText: c.size ? formatSize(c.size) : null,
+          seeds: c.seeders,
+          italian: c._italian,
+          italianSub: c._italianSub,
+          quality: c._quality,
+          seasonPack: c.isPack,
+          trackers: TRACKERS,
+        };
+        out.push(formatStream(candidateLike, prov.name, url));
+      }
+      console.log(`[RD] tmdb=${tmdbId} → ${cached.length} cached, emitted ${out.length}`);
+
+      // === ANIME: fallback su candidati Nyaa (ITA / sub ITA) ===
+      // L'API esterna ha gap su anime recenti (One Piece S23, ecc.). Per gli
+      // anime aggiungiamo i candidati ITA da Nyaa/searchTorrents controllati
+      // contro RD via mylist+verify. Limit 5 verify per non rallentare /stream.
+      if (isAnime && candidates.length && out.length < maxResults) {
+        const seenHashes = new Set(out.map((s) => s._hash).filter(Boolean));
+        // Ho perso il riferimento all'hash nei stream emessi (formatStream non
+        // lo include esplicitamente). Riprendiamo dagli enriched.
+        for (const c of pool) seenHashes.add(c.hash);
+        const animeCandidates = candidates
+          .filter((c) => (c.italian || c.italianSub) && !seenHashes.has(c.infoHash.toLowerCase()));
+        if (animeCandidates.length) {
+          console.log(`[RD] anime fallback: ${animeCandidates.length} candidati Nyaa/ITA da checkare`);
+          const hashes = animeCandidates.map((c) => c.infoHash);
+          const hashWithMagnets = new Map();
+          for (const c of animeCandidates) if (c.magnet) hashWithMagnets.set(c.infoHash, c.magnet);
+          const cachedMap = await Promise.race([
+            prov.checkCachedBatch(hashes, hashWithMagnets, meta.season, meta.episode, 5).catch(() => new Map()),
+            new Promise((r) => setTimeout(() => r(new Map()), 2500)),
+          ]);
+          let extraEmitted = 0;
+          for (const c of animeCandidates) {
+            if (out.length >= maxResults) break;
+            if (!cachedMap.has(c.infoHash)) continue;
+            // URL /play senza fi/rli — legacy path (mylist+pickRdLink euristico)
+            const q = new URLSearchParams();
+            if (meta.season) q.set('s', String(meta.season));
+            if (meta.episode) q.set('e', String(meta.episode));
+            q.set('p', 'rd');
+            if (imdbId) q.set('i', imdbId);
+            const url = `${publicHost}/${cfgB64}/play/${c.infoHash}?${q.toString()}`;
+            out.push(formatStream(c, prov.name, url));
+            extraEmitted++;
+          }
+          if (extraEmitted) console.log(`[RD] anime fallback emessi: +${extraEmitted}`);
+        }
+      }
       return out;
     }
 
     // Chiamo TUTTI i provider configurati in parallelo e fondo i risultati.
     // L'utente che ha sia RD che TB vede risultati da entrambi.
+    console.log(`[debug] providers configured: ${providers.map((p) => p.name).join(',') || '(none)'}`);
     const providerResults = await Promise.all(providers.map((prov) => {
-      if (prov.name === 'TB') return resolveTorbox(prov).catch(() => []);
-      if (prov.name === 'RD') return resolveRealDebrid(prov).catch(() => []);
+      if (prov.name === 'TB') return resolveTorbox(prov).catch((e) => { console.error('[TB] resolve threw:', e.message); return []; });
+      if (prov.name === 'RD') return resolveRealDebrid(prov).catch((e) => { console.error('[RD] resolve threw:', e.message, '\n', e.stack); return []; });
       return Promise.resolve([]);
     }));
 

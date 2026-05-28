@@ -37,7 +37,7 @@ function publicBase(req) {
 
 // Path noti del SDK / app che NON sono config codificate.
 const KNOWN_PATHS = new Set([
-  'configure', 'api', 'debug', 'play', 'hls', 'dl', 'resolve', 'extra', 'manifest.json', 'stream', 'meta', 'catalog', 'subtitles',
+  'configure', 'api', 'debug', 'play', 'hls', 'dl', 'resolve', 'extra', 'donate', 'manifest.json', 'stream', 'meta', 'catalog', 'subtitles',
   'logo.png', 'logo.svg', 'background.png', 'background.svg', 'pezzottio-logo.png',
   'changelog',
 ]);
@@ -454,17 +454,27 @@ app.get('/play/:hash', async (req, res) => {
       let url;
       if (useRd) {
         const rd = require('./debrid/realdebrid');
-        // Per torrent GIÀ in mylist: usa torrent_id esistente, no addMagnet
-        // (sennò RD ritorna duplicate-id error o info incoerente).
-        const mylist = await rd.getMyList();
-        const existing = mylist.get(hash);
-        if (existing) {
-          url = await rd.getStreamUrlFromExisting(existing, season, episode);
-        } else {
-          // Torrent NUOVO: addMagnet on-demand
+        // FAST PATH: se /stream ha emesso ?fi= e ?rli= (file_index +
+        // rd_link_index pre-mappati dall'API esterna), uso quelli direttamente.
+        // Salta pickRdLink euristico, più affidabile per i pack di serie.
+        const fi = req.query.fi !== undefined && req.query.fi !== '' ? req.query.fi : null;
+        const rli = req.query.rli !== undefined && req.query.rli !== '' ? req.query.rli : null;
+        if (fi !== null || rli !== null) {
           const TR = 'tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://tracker.openbittorrent.com:6969/announce&tr=udp://open.demonii.com:1337/announce';
           const magnet = `magnet:?xt=urn:btih:${hash}&${TR}`;
-          url = await rd.getStreamUrl(hash, magnet, season, episode);
+          url = await rd.getStreamUrlFast(hash, magnet, fi, rli);
+        } else {
+          // SLOW PATH (legacy / fallback per link generati prima del fast path):
+          // se in mylist riusa torrent_id, altrimenti addMagnet+selectAll+pick.
+          const mylist = await rd.getMyList();
+          const existing = mylist.get(hash);
+          if (existing) {
+            url = await rd.getStreamUrlFromExisting(existing, season, episode);
+          } else {
+            const TR = 'tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://tracker.openbittorrent.com:6969/announce&tr=udp://open.demonii.com:1337/announce';
+            const magnet = `magnet:?xt=urn:btih:${hash}&${TR}`;
+            url = await rd.getStreamUrl(hash, magnet, season, episode);
+          }
         }
       } else {
         // TB: createtorrent + redirect 302 (pattern Torrentio).
@@ -535,6 +545,118 @@ app.post('/api/test', async (req, res) => {
   const [rdResult, tbResult] = await Promise.all([testRealDebrid(rd), testTorbox(tb)]);
   res.json({ rd: rdResult, tb: tbResult });
 });
+
+// === DONAZIONI (Payblis Checkout Mode) ===
+const donations = require('./donations');
+
+// Genera URL Payblis. Frontend POST → ritorna { redirect } da seguire client-side.
+app.post('/api/donate', async (req, res) => {
+  try {
+    const { amount, email, name } = req.body || {};
+    const err = donations.validateDonation({ amount, email, name });
+    if (err) return res.status(400).json({ error: err });
+    if (!process.env.PAYBLIS_MERCHANT_KEY) {
+      return res.status(503).json({ error: 'Donazioni non configurate sul server' });
+    }
+    const userIP = req.headers['cf-connecting-ip']
+      || req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+      || req.socket?.remoteAddress
+      || '';
+    const publicHost = publicBase(req);
+    const { url, refOrder } = donations.buildCheckoutUrl({ amount, email, name, userIP, publicHost });
+    console.log(`[donate] new request: ${refOrder} amount=${amount}€ email=${email}`);
+    res.json({ redirect: url, ref: refOrder });
+  } catch (e) {
+    console.error('[donate] err:', e.message);
+    res.status(500).json({ error: 'errore interno' });
+  }
+});
+
+// Pagina di ringraziamento dopo pagamento completato.
+app.get('/donate/ok', (req, res) => {
+  const ref = String(req.query.ref || '').slice(0, 60);
+  res.type('html').send(donatePage({
+    title: 'Grazie!',
+    color: '#10b981',
+    icon: '✓',
+    heading: 'Donazione ricevuta. Grazie!',
+    body: 'Il tuo supporto fa la differenza. Il server, la banda e tutto il resto continuano a girare grazie a chi sceglie di contribuire come hai fatto tu.',
+    ref,
+  }));
+});
+
+// Pagina di errore/cancel pagamento.
+app.get('/donate/ko', (req, res) => {
+  const ref = String(req.query.ref || '').slice(0, 60);
+  res.type('html').send(donatePage({
+    title: 'Pagamento annullato',
+    color: '#f5a524',
+    icon: '×',
+    heading: 'Pagamento non completato',
+    body: 'Nessun addebito è stato effettuato. Puoi riprovare quando vuoi.',
+    ref,
+  }));
+});
+
+// IPN callback server-to-server da Payblis. Logga in /tmp file per tracking.
+// Verifica firma HMAC-SHA256 se Payblis manda il header (sicurezza extra).
+app.post('/donate/ipn', (req, res) => {
+  try {
+    const sig = req.headers['x-payblis-signature'] || req.body?.signature || '';
+    const valid = sig ? donations.verifyIpnSignature(req.body || {}, sig) : true;
+    donations.logDonation({
+      ref: req.body?.RefOrder || req.body?.ref || null,
+      amount: req.body?.amount || null,
+      status: req.body?.status || req.body?.payment_status || 'unknown',
+      raw: req.body,
+      sigValid: valid,
+      ip: req.headers['cf-connecting-ip'] || req.socket?.remoteAddress,
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[donate/ipn] err:', e.message);
+    res.status(500).json({ ok: false });
+  }
+});
+
+// Pagina HTML minimalista per ok/ko (no Tailwind, no JS — leggera)
+function donatePage({ title, color, icon, heading, body, ref }) {
+  const refLine = ref ? `<div class="ref">RIF: ${ref}</div>` : '';
+  return `<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>${title} · Pezzottio</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+           background: #08080c; color: #e4e4e7; margin: 0; min-height: 100vh;
+           display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { max-width: 480px; width: 100%; background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 40px 32px; text-align: center; }
+    .icon { width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 20px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 32px; font-weight: bold; background: ${color}1f; color: ${color}; border: 2px solid ${color}66; }
+    h1 { margin: 0 0 12px; font-size: 24px; font-weight: 700; }
+    p { color: #a1a1aa; line-height: 1.6; margin: 0 0 24px; }
+    .ref { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; color: #52525b; margin-bottom: 24px; }
+    a { display: inline-block; padding: 12px 24px; background: #e50914; color: white;
+        text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px;
+        text-transform: uppercase; letter-spacing: 0.5px; transition: background 0.15s; }
+    a:hover { background: #b81d24; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${icon}</div>
+    <h1>${heading}</h1>
+    <p>${body}</p>
+    ${refLine}
+    <a href="/configure">Torna a Pezzottio</a>
+  </div>
+</body>
+</html>`;
+}
 
 // === /api/status ===
 // Stato live dei provider esterni — chiamato dalla pagina /configure per

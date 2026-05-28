@@ -1,5 +1,25 @@
 [
   {
+    "date": "2026-06-01",
+    "items": [
+      { "type": "feat", "msg": "Donazioni integrate. Card 'Sostieni Pezzottio' nella hero di /configure con importi preset (5€/10€/20€/50€) + campo libero. Pagamento sicuro via carta, una tantum, ricevuta sull'email. Server, banda e dominio restano gratis per chi li usa." },
+      { "type": "feat", "msg": "Profili multipli ora supportano Real-Debrid per-profilo: ogni profilo può avere la sua chiave Torbox e/o Real-Debrid indipendenti, oppure ereditare quelle globali come fallback." },
+      { "type": "feat", "msg": "Anime via Kitsu: per gli anime long-running (One Piece, Naruto, Bleach...) traduzione automatica episodio assoluto → S/E TMDB. Esempio: One Piece ep 1163 da Kitsu = S23E08 nel lookup RD/Torbox." },
+      { "type": "feat", "msg": "Per gli anime aggiunto fallback Nyaa (sub ITA + ITA) sia per Torbox che Real-Debrid quando l'API di cache esterna non ha l'episodio (gap su release recenti)." },
+      { "type": "config", "msg": "Pagina /configure rinfrescata: hero con badge 'NOVITÀ Real-Debrid', sottotitolo aggiornato (Torbox + Real-Debrid in parallelo), filtri e descrizioni allineati al nuovo supporto debrid dual." },
+      { "type": "feat", "msg": "Bottone 'Copia link manuale' anche per il catalogo extra (oltre a quello esistente per Pezzottio)." }
+    ]
+  },
+  {
+    "date": "2026-05-31",
+    "items": [
+      { "type": "breaking", "msg": "Real-Debrid riattivato. Puoi inserire la tua chiave RD nella pagina /configure, anche in parallelo con Torbox. Nuova pipeline di cache check ~600ms (vs 2.5s del vecchio mylist+verify). Per gli anime aggiunto fallback Nyaa (sub ITA + ITA)." },
+      { "type": "feat", "msg": "Per le serie l'API esterna fornisce già file_index + rd_link_index pre-mappati: niente più matching euristico fragile sui pack, il file giusto dell'episodio è sempre quello giusto." },
+      { "type": "config", "msg": "Campo Real-Debrid riattivato nella pagina /configure. Puoi configurarlo da solo o in parallelo a Torbox — in quest'ultimo caso la lista mostra entrambi i provider con badge [RD⚡] e [TB⚡]." },
+      { "type": "perf", "msg": "Hit rate cached medio osservato: ~45% su titoli popolari (range 0-60% a seconda della release). Latency totale /stream lato RD scende sotto la soglia di 2s anche su contenuti con pool grande." }
+    ]
+  },
+  {
     "date": "2026-05-30",
     "items": [
       { "type": "feat", "msg": "Catalogo anime integrato (Kitsu): 5 sezioni in home — Pezzottio Anime / In Onda / Più Popolari / Top Rated / Nuovi. Search anime via Kitsu, metadata completi (lista episodi con thumbnail, voti, generi). Niente più dipendenza da addon esterni." },

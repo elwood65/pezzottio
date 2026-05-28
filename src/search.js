@@ -764,6 +764,16 @@ async function searchTorrents(meta, type, imdbId) {
       }
     }
     if (!nyaaQueries.length) nyaaQueries.push(cleanTitle);
+    // Query esplicite "ITA" per gli anime: trova release di gruppi italiani
+    // (Tenebra, Wolverine, ItalianShare, ecc.) anche quando il titolo principale
+    // non porta marker linguistico. Nyaa fuzzy-matcha sui filename.
+    if (absPadded) {
+      nyaaQueries.push(`${cleanTitle} ${absPadded} ITA`);
+    } else if (sPadded && ePadded) {
+      nyaaQueries.push(`${cleanTitle} S${sPadded}E${ePadded} ITA`);
+    } else {
+      nyaaQueries.push(`${cleanTitle} ITA`);
+    }
 
     // Le altre fonti hanno meno rate limit, possiamo fare più query
     const otherQueries = [];

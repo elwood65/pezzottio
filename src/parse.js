@@ -312,7 +312,7 @@ function matchesAnimeEpisode(torrentName, season, episode, absoluteEpisode) {
 // Trova il file dentro un pack che corrisponde all'episodio richiesto.
 // `files` è un array con almeno {name|short_name|path, size}. Restituisce
 // l'oggetto file o null se non trovato.
-function findFileForEpisode(files, season, episode) {
+function findFileForEpisode(files, season, episode, absoluteEpisode = null) {
   if (!Array.isArray(files) || !season || !episode) return null;
   const videoRe = /\.(mkv|mp4|avi|mov|webm|m4v|ts)$/i;
   const sStr = String(season);
@@ -330,6 +330,26 @@ function findFileForEpisode(files, season, episode) {
   for (const re of patterns) {
     const match = candidates.find((x) => re.test(x.name));
     if (match) return match.f;
+  }
+  // ANIME FALLBACK — match numerazione assoluta dentro al filename.
+  // Trigger automatico per casi Kitsu flat (season=1, episode>=30 = quasi
+  // sicuramente absolute), oppure se il caller passa absoluteEpisode esplicito.
+  // Pattern coperti: "One Piece - 1163.mkv", "Naruto_220_END", "[Group] Anime 100 [...]"
+  const absNum = absoluteEpisode != null
+    ? Number(absoluteEpisode)
+    : (Number(season) === 1 && Number(episode) >= 30 ? Number(episode) : null);
+  if (absNum && absNum > 0) {
+    const a = String(absNum);
+    const a3 = a.padStart(3, '0');
+    const absPatterns = [
+      new RegExp(`[\\s\\-._\\[(]0?${a}[\\s\\-._\\])]`, 'i'),
+      new RegExp(`[\\s\\-._\\[(]${a3}[\\s\\-._\\])]`, 'i'),
+      new RegExp(`\\b(?:ep|episode|#)[\\s._\\-]*0?${a}\\b(?!\\d)`, 'i'),
+    ];
+    for (const re of absPatterns) {
+      const match = candidates.find((x) => re.test(x.name));
+      if (match) return match.f;
+    }
   }
   return null;
 }
