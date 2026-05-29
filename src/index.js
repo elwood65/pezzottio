@@ -503,7 +503,8 @@ app.get('/resolve/:prov/:slugEnc/:episode', async (req, res) => {
       return res.status(404).send('stream not found');
     }
     console.log(`[resolve] ${prov} ${slug} ep${episode} -> ${r.url.slice(0, 80)} (${Date.now() - t0}ms)`);
-    return res.redirect(302, r.url);
+    // 302 secco senza body per evitare HTTP/2 framing errors via CF tunnel.
+    return res.set('Location', r.url).status(302).end();
   } catch (e) {
     console.error('[resolve]', prov, e.message);
     return res.status(502).send('resolve failed');
@@ -589,7 +590,12 @@ app.get('/play/:hash', async (req, res) => {
       // direttamente i Content-Type non standard di RD CDN.
       // /dl endpoint resta come fallback (non più usato di default).
       console.log(`[play] OK ${hash.slice(0, 8)}${seTag} via ${provName} (${ms}ms)`);
-      res.redirect(302, url);
+      // 302 "secco" senza body (Content-Length: 0). Express res.redirect()
+      // emette HTML "Found. Redirecting to ..." con Content-Type: text/html;
+      // su CF tunnel + HTTP/2 client questo provoca "Error in the HTTP2
+      // framing layer" → Stremio mostra "loading failed". Mandando solo
+      // Location + 302 + body vuoto il framing resta pulito.
+      res.set('Location', url).status(302).end();
 
       // === FIRE-AND-FORGET dopo il redirect ===
       // Auto-prefetch del prossimo episodio in TB se serie + opt-in.
