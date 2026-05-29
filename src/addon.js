@@ -146,13 +146,22 @@ builder.defineStreamHandler(async ({ type, id }) => {
     const isMovie = type === 'movie';
     const httpProviderArgs = [meta.title, meta.season, meta.episode, meta.absoluteEpisode, meta.animeAliases || [], meta.imdbId || imdbId, meta.providerSlugs];
 
-    // Master timeout per ogni fetch. 2-3s per TUTTO. Per anime gli stream HTTP
-    // arrivano come "lazy URL placeholder" (vedi sotto): zero attesa per la
-    // chain di fetch, la risoluzione avviene SOLO al click utente su /resolve.
+    // Master timeout per ogni fetch. 2-3s per provider INTERNI (TB/SC/AU + HTTP)
+    // → /stream apre veloce, gli stream HTTP arrivano come "lazy URL placeholder"
+    // (vedi sotto): zero attesa per la chain di fetch, la risoluzione avviene
+    // SOLO al click utente su /resolve.
+    //
+    // EXTERNAL addon (Torrentio, Comet, MediaFusion, StremThru, Meteor) hanno
+    // cap separato più lungo (4-5s): upstream lenti su titoli con pool grande
+    // (~24 stream Grey's Anatomy, ~30 One Piece) o cold call dopo restart
+    // possono passare il cap di 2s anche se il vero fetch impiega 300-500ms.
+    // Worst-case /stream latency: max(CAP_MS, CAP_MS_EXTERNAL) = 4s; in cache
+    // hit (~5min TTL) torna istantaneo.
     const CAP_MS = isAnime ? 3000 : 2000;
-    const raceTimeout = (p, def) => Promise.race([
+    const CAP_MS_EXTERNAL = isAnime ? 5000 : 4000;
+    const raceTimeout = (p, def, cap = CAP_MS) => Promise.race([
       p,
-      new Promise((r) => setTimeout(() => r(def), CAP_MS)),
+      new Promise((r) => setTimeout(() => r(def), cap)),
     ]);
 
     // providerSlugsPromise è kick-startato in resolveTitle ma non awaited
@@ -169,7 +178,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     // Risultati paralleli: torrent + external + slugs animemapping
     const [torrentsRaw, externalStreams, vxStream, scStream, slugsResult] = await Promise.all([
       raceTimeout(searchTorrents(meta, type, imdbId), []),
-      raceTimeout(external.searchExternal(type, fullStremioId).catch(() => []), []),
+      raceTimeout(external.searchExternal(type, fullStremioId).catch(() => []), [], CAP_MS_EXTERNAL),
       (!isAnime && imdbId)
         ? raceTimeout(vidxgo.findStream(imdbId, meta.season, meta.episode, isMovie).catch(() => null), null)
         : Promise.resolve(null),
