@@ -26,13 +26,22 @@ const { getConfig } = require('../config');
 //   - MediaFusion: payload Fernet-encrypted → POST /encrypt-user-data per
 //     ottenere il token cifrato dalla nostra config
 
-// Cache token MediaFusion encrypted per chiave RD (TTL 24h)
+// Cache token MediaFusion encrypted per (chiave RD + lang) (TTL 24h).
+// Lang nel key è critico: token con language_sorting:['Italian','English']
+// è diverso da ['English','Italian']. Senza, utenti EN ricevono filtro IT.
 const _mfTokenCache = new Map();
 const _MF_TTL = 24 * 60 * 60 * 1000;
 async function _getMediaFusionToken(rdKey) {
-  const cached = _mfTokenCache.get(rdKey);
+  let lang = 'it';
+  try { lang = getConfig().lang || 'it'; } catch (_) {}
+  const cacheKey = `${rdKey}:${lang}`;
+  const cached = _mfTokenCache.get(cacheKey);
   if (cached && Date.now() - cached.t < _MF_TTL) return cached.v;
   const host = (process.env.MEDIAFUSION_HOST || 'https://mediafusionfortheweebs.midnightignite.me').replace(/\/$/, '');
+  // Lang-aware sorting: utente IT vuole IT in cima, utente EN vuole EN in cima.
+  const languageSorting = lang === 'en'
+    ? ['English', 'Italian']
+    : ['Italian', 'English'];
   const userData = {
     streaming_provider: { service: 'realdebrid', token: rdKey, enable_watchlist_catalogs: false },
     selected_catalogs: [],
@@ -46,7 +55,7 @@ async function _getMediaFusionToken(rdKey) {
       { key: 'size', direction: 'desc' },
       { key: 'seeders', direction: 'desc' },
     ],
-    language_sorting: ['Italian', 'English'],
+    language_sorting: languageSorting,
     quality_filter: ['CAM'],
     show_full_torrent_name: true,
     mediaflow_config: null,
@@ -56,11 +65,12 @@ async function _getMediaFusionToken(rdKey) {
     api_password: null,
   };
   try {
+    // Timeout 5s (era 3s): la prima call cold dopo pm2 restart può tardare.
     const r = await fetch(`${host}/encrypt-user-data`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_data: userData }),
-      timeout: 3000,
+      timeout: 5000,
     });
     if (!r.ok) {
       console.error(`[external] MediaFusion encrypt-user-data ${r.status}`);
@@ -72,8 +82,8 @@ async function _getMediaFusionToken(rdKey) {
       console.error('[external] MediaFusion encrypt-user-data no token in response');
       return null;
     }
-    _mfTokenCache.set(rdKey, { v: token, t: Date.now() });
-    console.log(`[external] MediaFusion token caricato per chiave RD ${rdKey.slice(0, 6)}...`);
+    _mfTokenCache.set(cacheKey, { v: token, t: Date.now() });
+    console.log(`[external] MediaFusion token caricato per chiave RD ${rdKey.slice(0, 6)}... lang=${lang}`);
     return token;
   } catch (e) {
     console.error('[external] MediaFusion encrypt-user-data err:', e.message);
