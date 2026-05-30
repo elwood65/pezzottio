@@ -1590,14 +1590,31 @@ app.get(/^\/extra-en(\/.*)?$/, _createExtraProxy({
 // disabilitato l'anime nella sua config (httpAnime=false). Catalogo e stream
 // HTTP anime vanno insieme — se uno è off, l'altro pure. Questo middleware
 // deve girare PRIMA del SDK router (che serve il manifest statico).
+// Per lang='en' traduce anche i nomi dei catalog anime in inglese (lo statico
+// è hardcoded in italiano — backward-compat per utenti IT esistenti).
 app.get(/^\/manifest\.json$/, (req, res, next) => serveManifest(req, res, next));
+const ANIME_CATALOG_NAMES_EN = {
+  'pezzottio-anime-airing': 'Pezzottio Anime — Airing',
+  'pezzottio-anime-popular': 'Pezzottio Anime — Most Popular',
+  'pezzottio-anime-rating': 'Pezzottio Anime — Top Rated',
+  'pezzottio-anime-newest': 'Pezzottio Anime — Newest',
+};
 function serveManifest(req, res) {
   try {
     const animeOff = req.userConfig?.httpAnime === false || req.userConfig?.httpAnime === 'false';
+    const lang = (req.userConfig?.lang === 'en' || req.userConfig?.lang === 'mixed') ? req.userConfig.lang : 'it';
     // Clone shallow del manifest. Filtra catalogs se anime off.
     const m = { ...addonInterface.manifest };
     if (animeOff && Array.isArray(m.catalogs)) {
       m.catalogs = m.catalogs.filter((c) => !c.id.startsWith('pezzottio-anime-'));
+    }
+    // Lang EN: ricrea il catalogs array con i nomi tradotti (search restano
+    // "Pezzottio Anime" perché generici). Lang IT: invariato.
+    if (lang === 'en' && Array.isArray(m.catalogs)) {
+      m.catalogs = m.catalogs.map((c) => {
+        const newName = ANIME_CATALOG_NAMES_EN[c.id];
+        return newName ? { ...c, name: newName } : c;
+      });
     }
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'max-age=300, public');
