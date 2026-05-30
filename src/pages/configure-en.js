@@ -1054,6 +1054,11 @@ function render({ base, rd, tb, order, aios, style, onlyTorrent, filter, fullIta
             <span id="last-update-text">Changelog</span>
           </a>
           <span class="text-zinc-700">·</span>
+          <a href="/legal" class="hover:text-white transition flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Legal / Disclaimer
+          </a>
+          <span class="text-zinc-700">·</span>
           <span>Open source · MIT</span>
         </div>
       </div>

@@ -5,6 +5,7 @@ const addonInterface = require('./addon');
 const { getConfig, runWithConfig, decodeConfig } = require('./config');
 const configurePage = require('./pages/configure');
 const configurePageEN = require('./pages/configure-en');
+const legalPage = require('./pages/legal');
 
 const app = express();
 app.use(express.json({ limit: '64kb' }));
@@ -38,7 +39,7 @@ function publicBase(req) {
 
 // Path noti del SDK / app che NON sono config codificate.
 const KNOWN_PATHS = new Set([
-  'configure', 'configure-en', 'api', 'debug', 'play', 'hls', 'hls2', 'dl', 'resolve', 'extra', 'extra-en', 'donate', 'manifest.json', 'stream', 'meta', 'catalog', 'subtitles',
+  'configure', 'configure-en', 'api', 'debug', 'play', 'hls', 'hls2', 'dl', 'resolve', 'extra', 'extra-en', 'donate', 'legal', 'manifest.json', 'stream', 'meta', 'catalog', 'subtitles',
   'logo.png', 'logo.svg', 'background.png', 'background.svg', 'pezzottio-logo.png',
   'changelog',
 ]);
@@ -112,6 +113,12 @@ app.get('/configure-en', (req, res) => {
       httpAnime: !(req.userConfig.httpAnime === false || req.userConfig.httpAnime === 'false'),
     })
   );
+});
+
+// /legal — disclaimer legale bilingue (EN + IT). Pagina statica HTML,
+// raggiungibile dai footer di /configure e /configure-en.
+app.get('/legal', (req, res) => {
+  res.type('html').setHeader('Cache-Control', 'public, max-age=3600').send(legalPage.render());
 });
 
 // --- Test live delle API key (no salvataggio server-side) ---
