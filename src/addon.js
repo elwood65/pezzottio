@@ -527,7 +527,12 @@ builder.defineStreamHandler(async ({ type, id }) => {
         const lines = [titleHeader];
         if (lang === 'en') {
           if (t.english) lines.push('🇺🇸  Audio ENG');
-          else if (t.englishSub) lines.push('📝  SUB ENG');
+          else if (t.englishSub) lines.push('🇬🇧  SUB ENG');
+          // Default per EN: se non c'è marker italian esplicito, presumiamo
+          // audio EN (la maggior parte dei torrent per film/serie USA non
+          // tagga "english" perché è implicito — solo "ITA" viene marcato
+          // esplicitamente nelle release internazionali).
+          else if (!t.italian && !t.italianSub) lines.push('🇺🇸  Audio ENG');
         } else {
           if (t.italian) lines.push('🇮🇹  Audio ITA');
           else if (t.italianSub) lines.push('📝  SUB ITA');
@@ -590,7 +595,9 @@ builder.defineStreamHandler(async ({ type, id }) => {
         const lines = [titleHeader];
         if (lang === 'en') {
           if (s.english) lines.push('🇺🇸  Audio ENG');
-          else if (s.englishSub) lines.push('📝  SUB ENG');
+          else if (s.englishSub) lines.push('🇬🇧  SUB ENG');
+          // Default per EN: presumiamo audio EN se nessun marker italian.
+          else if (!s.italian && !s.italianSub) lines.push('🇺🇸  Audio ENG');
         } else {
           if (s.italian) lines.push('🇮🇹  Audio ITA');
           else if (s.italianSub) lines.push('📝  SUB ITA');
